@@ -1,0 +1,25 @@
+{
+  "name": "Komari Aurora",
+  "short": "Aurora",
+  "description": "Apple HIG inspired dark theme for Komari, with aggregate metrics, three-ISP latency and SVG network charts.",
+  "version": "1.0.0",
+  "author": "Komari Aurora",
+  "url": "https://github.com/komari-monitor/komari",
+  "preview": "preview.png",
+  "configuration": {
+    "type": "managed",
+    "name": "Aurora 设置",
+    "data": [
+      { "name": "基础设置", "type": "title" },
+      { "key": "dataUpdateInterval", "name": "数据更新间隔", "type": "number", "default": 3, "help": "实时数据刷新间隔，单位：秒（建议 1-10 秒）" },
+      { "key": "defaultHistoryHours", "name": "默认图表时间范围", "type": "select", "default": "24", "options": "1,6,12,24", "help": "详情页网络质量图表默认展示的时间范围" },
+      { "key": "showOfflineNodes", "name": "显示离线节点", "type": "switch", "default": true, "help": "在总览页显示离线状态的服务器卡片" },
+      { "name": "三网延迟", "type": "title" },
+      { "key": "enablePing", "name": "启用三网延迟", "type": "switch", "default": true, "help": "获取并展示电信/联通/移动三网延迟数据（会按节点请求数据）" },
+      { "key": "pingHours", "name": "延迟统计时长", "type": "select", "default": "1", "options": "1,6,12,24", "help": "三网延迟迷你柱状图的数据统计时长（小时）" },
+      { "name": "页面设置", "type": "title" },
+      { "key": "cardsPerRow", "name": "桌面端每行卡片数", "type": "select", "default": "3", "options": "2,3,4", "help": "总览页服务器卡片网格在桌面端的列数" },
+      { "key": "footerName", "name": "页脚名称", "type": "string", "default": "", "help": "页脚 Powered by 后显示的名称，留空则使用站点名称" }
+    ]
+  }
+}

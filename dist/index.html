@@ -1,0 +1,1178 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<link rel="icon" href="/favicon.ico" />
+<title>Komari Monitor</title>
+<meta name="description" content="A simple server monitor tool." />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<style>
+/* ============ Design Tokens ============ */
+:root{
+  --font:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Helvetica Neue','PingFang SC','Noto Sans CJK SC','Microsoft YaHei',Arial,sans-serif;
+  --mono:'SF Mono',Menlo,Monaco,'JetBrains Mono','Courier New',monospace;
+  --r-card:14px; --r-lg:16px; --r-md:12px; --r-sm:8px; --r-pill:9999px;
+  --cpu:#007AFF; --ram:#34C759; --disk:#FF9500; --traffic:#AF52DE;
+  --net-up:#34C759; --net-down:#007AFF; --danger:#FF3B30; --online:#34C759;
+  --telecom:#34C759; --unicom:#FFCC00; --mobile:#FF9500;
+}
+html[data-theme="dark"]{
+  --bg:#0d1117; --bg-2:#010409; --panel:#1c1c1e; --panel-2:#2c2c2e; --panel-3:#161b22;
+  --txt:#f5f5f7; --txt-2:#8E8E93; --txt-3:#636366;
+  --border:rgba(255,255,255,0.08); --border-2:rgba(255,255,255,0.05);
+  --hover-border:rgba(255,255,255,0.14);
+  --cell:rgba(255,255,255,0.03); --track:rgba(255,255,255,0.06);
+  --blur:saturate(180%) blur(20px); --header-bg:rgba(13,17,23,0.72);
+  --shadow-card:0 2px 8px rgba(0,0,0,0.3); --shadow-lg:0 8px 32px rgba(0,0,0,0.4);
+  --overlay-bg:rgba(0,0,0,0.55); --mask-bg:rgba(0,0,0,0.45);
+  --badge-online-bg:rgba(52,199,89,0.15); --badge-offline-bg:rgba(255,59,48,0.15);
+  --dot-online-shadow:rgba(52,199,89,0.15); --dot-offline-shadow:rgba(255,59,48,0.15);
+  --shimmer:rgba(255,255,255,0.04);
+  --qv-cell-bg:rgba(255,255,255,0.04);
+  --price-dark-bg:rgba(255,255,255,0.06);
+}
+html[data-theme="light"]{
+  --bg:#f2f2f7; --bg-2:#e5e5ea; --panel:#ffffff; --panel-2:#f2f2f7; --panel-3:#f2f2f7;
+  --txt:#1d1d1f; --txt-2:#6e6e73; --txt-3:#aeaeb2;
+  --border:rgba(0,0,0,0.08); --border-2:rgba(0,0,0,0.05);
+  --hover-border:rgba(0,0,0,0.16);
+  --cell:rgba(0,0,0,0.035); --track:rgba(0,0,0,0.07);
+  --blur:saturate(180%) blur(20px); --header-bg:rgba(242,242,247,0.80);
+  --shadow-card:0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04); --shadow-lg:0 6px 24px rgba(0,0,0,0.10);
+  --overlay-bg:rgba(0,0,0,0.25); --mask-bg:rgba(0,0,0,0.20);
+  --badge-online-bg:rgba(52,199,89,0.12); --badge-offline-bg:rgba(255,59,48,0.10);
+  --dot-online-shadow:rgba(52,199,89,0.20); --dot-offline-shadow:rgba(255,59,48,0.18);
+  --shimmer:rgba(0,0,0,0.04);
+  --qv-cell-bg:rgba(0,0,0,0.025);
+  --price-dark-bg:rgba(0,0,0,0.03);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--font); background:var(--bg); color:var(--txt);
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  min-height:100vh; line-height:1.4; transition:background .3s,color .3s;
+}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input{font-family:inherit}
+::selection{background:rgba(0,122,255,0.3)}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
+::-webkit-scrollbar-thumb:hover{background:var(--txt-3)}
+
+/* ============ Layout ============ */
+.app{min-height:100vh;display:flex;flex-direction:column}
+.container{max-width:1320px;margin:0 auto;padding:0 24px;width:100%}
+.main{flex:1;padding:24px 0 48px}
+
+/* ============ Header ============ */
+.header{position:sticky;top:0;z-index:50;background:var(--header-bg);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border-bottom:1px solid var(--border)}
+.header-inner{display:flex;align-items:center;justify-content:space-between;height:56px}
+.brand{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:600;letter-spacing:-.01em}
+.brand .logo{width:26px;height:26px;flex:0 0 auto}
+.header-actions{display:flex;align-items:center;gap:6px}
+.icon-btn{width:36px;height:36px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;color:var(--txt-2);transition:background .15s,color .15s}
+.icon-btn:hover{background:var(--panel-2);color:var(--txt)}
+.icon-btn svg{width:20px;height:20px}
+
+/* ============ Aggregate Metrics ============ */
+.metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:24px}
+.metric-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-card);padding:16px;box-shadow:var(--shadow-card);display:flex;flex-direction:column;gap:6px;transition:transform .15s,border-color .15s}
+.metric-card:hover{transform:translateY(-1px);border-color:var(--hover-border)}
+.metric-top{display:flex;align-items:center;justify-content:space-between}
+.metric-label{font-size:12px;color:var(--txt-2);font-weight:500;letter-spacing:.02em}
+.metric-chev{color:var(--txt-2);width:14px;height:14px;opacity:.7}
+.metric-value{font-size:20px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.metric-value .u{font-size:12px;font-weight:500;color:var(--txt-2);margin-left:3px}
+.metric-value.tone-cpu{color:var(--cpu)}
+.metric-value.tone-disk{color:var(--disk)}
+.metric-value.tone-traffic{color:var(--traffic)}
+.metric-value.tone-up{color:var(--net-up)}
+.metric-value.tone-down{color:var(--net-down)}
+
+/* ============ Filters ============ */
+.filter-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.filter-left{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.section-title{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{padding:6px 16px;border-radius:var(--r-pill);font-size:13px;font-weight:500;background:var(--panel);color:var(--txt-2);border:1px solid var(--border);transition:all .15s;white-space:nowrap}
+.chip:hover{color:var(--txt)}
+.chip.active{background:var(--txt);color:var(--bg);border-color:var(--txt)}
+.search{position:relative}
+.search input{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-pill);padding:8px 14px 8px 38px;font-size:13px;color:var(--txt);width:220px;outline:none;transition:border-color .15s}
+.search input:focus{border-color:var(--cpu)}
+.search input::placeholder{color:var(--txt-3)}
+.search .si{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--txt-3);width:16px;height:16px}
+
+/* ============ Server Card Grid ============ */
+.grid{display:grid;gap:16px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-card);padding:18px;box-shadow:var(--shadow-card);display:flex;flex-direction:column;gap:14px;cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .15s;position:relative}
+.card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);border-color:var(--hover-border)}
+.card.offline{opacity:.55}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.node-id{display:flex;align-items:center;gap:8px;min-width:0}
+.dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;background:var(--txt-3)}
+.dot.online{background:var(--online);box-shadow:0 0 0 3px var(--dot-online-shadow)}
+.dot.offline{background:var(--danger);box-shadow:0 0 0 3px var(--dot-offline-shadow)}
+.node-name{font-size:16px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flag{width:18px;height:13px;border-radius:2px;object-fit:cover;flex:0 0 auto;background:var(--cell)}
+.badge{padding:2px 12px;border-radius:var(--r-pill);font-size:11px;font-weight:600;letter-spacing:.02em}
+.badge.online{background:var(--badge-online-bg);color:var(--online)}
+.badge.offline{background:var(--badge-offline-bg);color:var(--danger)}
+.badge.outline{background:transparent;border:1px solid currentColor}
+.hw{font-size:13px;color:var(--txt-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* metric mini grid */
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mcell{background:var(--cell);border-radius:var(--r-sm);padding:10px;display:flex;flex-direction:column;gap:6px}
+.mcell .lbl{font-size:10px;color:var(--txt-2);font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.mcell .val{font-size:18px;font-weight:700;line-height:1;letter-spacing:-.02em}
+.mcell .val.c-cpu{color:var(--cpu)}
+.mcell .val.c-ram{color:var(--ram)}
+.mcell .val.c-disk{color:var(--disk)}
+.mcell .val.c-traffic{color:var(--traffic)}
+.mcell .val.muted{color:var(--txt-3)}
+.bar{height:4px;border-radius:var(--r-pill);background:var(--track);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:var(--r-pill);width:0;transition:width .5s ease}
+.bar.lg{height:6px}
+.g-cpu{background:linear-gradient(90deg,#007AFF,#5AC8FA)}
+.g-ram{background:linear-gradient(90deg,#34C759,#30D158)}
+.g-disk{background:linear-gradient(90deg,#FF9500,#FFCC00)}
+.g-traffic{background:linear-gradient(90deg,#AF52DE,#DA70D6)}
+
+/* ping area */
+.ping-wrap{display:flex;flex-direction:column;gap:8px}
+.ping-title{font-size:12px;font-weight:600;color:var(--txt)}
+.ping-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.ping-col{display:flex;flex-direction:column;gap:5px}
+.ping-col .pi{font-size:10px;color:var(--txt-2);font-weight:500}
+.ping-col .pv{font-size:13px;font-weight:700}
+.ping-col .pv.c-tel{color:var(--telecom)}
+.ping-col .pv.c-uni{color:var(--unicom)}
+.ping-col .pv.c-mob{color:var(--mobile)}
+.ping-col .pv.muted{color:var(--txt-3)}
+.minibars{display:flex;align-items:flex-end;gap:3px;height:22px}
+.minibars b{width:4px;border-radius:2px;background:var(--track);display:block;height:100%}
+.minibars b.f-tel{background:var(--telecom)}
+.minibars b.f-uni{background:var(--unicom)}
+.minibars b.f-mob{background:var(--mobile)}
+
+.card-foot{font-size:11px;color:var(--txt-2);display:flex;flex-wrap:wrap;gap:0;align-items:center}
+.card-foot .sep{margin:0 7px;color:var(--txt-3)}
+.card-foot .up{color:var(--net-up)}
+.card-foot .down{color:var(--net-down)}
+.card-quick{position:absolute;top:14px;right:14px;opacity:0;transition:opacity .15s}
+.card:hover .card-quick{opacity:1}
+.qbtn{width:26px;height:26px;border-radius:8px;background:var(--panel-2);color:var(--txt-2);display:inline-flex;align-items:center;justify-content:center}
+.qbtn:hover{color:var(--txt)}
+.qbtn svg{width:15px;height:15px}
+
+/* ============ Empty / Loading ============ */
+.empty{text-align:center;padding:64px 24px;color:var(--txt-2)}
+.empty svg{width:48px;height:48px;color:var(--txt-3);margin-bottom:12px}
+.sk-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-card);padding:18px;height:230px;position:relative;overflow:hidden}
+.sk-card::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,var(--shimmer),transparent);animation:sh 1.4s infinite}
+@keyframes sh{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+
+/* ============ Quick View Modal (Page 2) ============ */
+.overlay{position:fixed;inset:0;z-index:100;background:var(--overlay-bg);backdrop-filter:blur(6px);display:flex;align-items:flex-start;justify-content:center;padding:64px 20px;overflow-y:auto;animation:fade .2s}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.qv{width:100%;max-width:680px;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-lg);padding:32px;box-shadow:var(--shadow-lg);animation:pop .25s}
+@keyframes pop{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+.back{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--txt-2);margin-bottom:18px}
+.back:hover{color:var(--txt)}
+.qv-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
+.qv-id{display:flex;align-items:center;gap:10px}
+.qv-id .dot{width:10px;height:10px}
+.qv-id .node-name{font-size:22px}
+.qv-hw{font-size:13px;color:var(--txt-2);margin:6px 0 24px}
+.qv-mgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+.qv-mcell{background:var(--qv-cell-bg);border:1px solid var(--border);border-radius:var(--r-md);padding:20px;display:flex;flex-direction:column;gap:8px}
+.qv-mcell .big{font-size:28px;font-weight:700;line-height:1;letter-spacing:-.02em}
+.qv-mcell .big.c-cpu{color:var(--cpu)}
+.qv-mcell .big.c-ram{color:var(--ram)}
+.qv-mcell .big.c-disk{color:var(--disk)}
+.qv-mcell .big.c-traffic{color:var(--traffic)}
+.qv-mcell .big.muted{color:var(--txt-3)}
+.qv-mcell .hex{font-size:11px;font-family:var(--mono);color:var(--txt-3)}
+.qv-sec-title{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;margin-bottom:12px}
+.tag-new{font-size:10px;color:var(--txt-3);background:var(--track);border-radius:4px;padding:2px 6px;font-weight:600}
+.qv-ping{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
+.qv-pcell{background:var(--qv-cell-bg);border:1px solid var(--border);border-radius:var(--r-md);padding:16px;display:flex;flex-direction:column;gap:6px}
+.qv-pcell .pn{font-size:12px;color:var(--txt-2)}
+.qv-pcell .pl{font-size:24px;font-weight:700;line-height:1}
+.qv-pcell .pl.c-tel{color:var(--telecom)}
+.qv-pcell .pl.c-uni{color:var(--unicom)}
+.qv-pcell .pl.c-mob{color:var(--mobile)}
+.qv-pcell .pl.muted{color:var(--txt-3)}
+.qv-pcell .ploss{font-size:11px;color:var(--txt-3)}
+.qv-pcell .minibars{height:30px}
+.qv-pcell .minibars b{width:5px}
+.qv-foot{border-top:1px solid var(--border);padding-top:16px;font-size:13px;color:var(--txt-2);display:flex;flex-wrap:wrap;align-items:center}
+.qv-foot .sep{margin:0 8px;color:var(--txt-3)}
+
+/* ============ Detail Page (Page 3) ============ */
+.detail{display:grid;grid-template-columns:260px 1fr;gap:24px;align-items:flex-start}
+.sidebar{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-card);padding:24px 20px;display:flex;flex-direction:column;gap:20px;position:sticky;top:80px}
+.sb-head{display:flex;flex-direction:column;gap:10px}
+.sb-id{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sb-id .node-name{font-size:18px}
+.price-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.price-card{border-radius:var(--r-md);padding:16px;display:flex;flex-direction:column;gap:8px}
+.price-card.dark{background:var(--price-dark-bg);border:1px solid var(--border)}
+.price-card.green{background:var(--online)}
+.price-card.green .pl{color:rgba(0,0,0,0.5)}
+.price-card.green .pv{color:#fff}
+.price-card .pl{font-size:11px;color:var(--txt-3);font-weight:500}
+.price-card .pv{font-size:16px;font-weight:700}
+.price-card .pv small{font-size:12px;font-weight:500;color:var(--txt-2)}
+.price-card.green .pv small{color:rgba(255,255,255,0.8)}
+.info-block{display:flex;flex-direction:column;gap:8px}
+.info-block h4{font-size:14px;font-weight:600;margin:0 0 2px}
+.info-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px}
+.info-row .k{color:var(--txt-2)}
+.info-row .v{color:var(--txt);font-weight:500;text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.info-row .arr{color:var(--txt-2)}
+
+.detail-main{display:flex;flex-direction:column;gap:20px}
+.dm-title{display:flex;align-items:baseline;gap:12px}
+.dm-title h2{font-size:20px;font-weight:700;margin:0}
+.dm-title span{font-size:14px;color:var(--txt-2)}
+.time-sel{display:flex;gap:8px;flex-wrap:wrap}
+.tbtn{padding:6px 14px;border-radius:var(--r-pill);font-size:13px;font-weight:500;background:var(--panel);color:var(--txt-2);border:1px solid var(--border);transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+.tbtn:hover{color:var(--txt)}
+.tbtn.active{background:var(--cpu);color:#fff;border-color:var(--cpu)}
+.tbtn svg{width:12px;height:12px;opacity:.7}
+
+.chart-box{background:var(--panel-3);border:1px solid var(--border);border-radius:var(--r-md);padding:20px}
+.chart-box svg{width:100%;height:auto;display:block;overflow:visible}
+.capsules{display:flex;gap:14px;flex-wrap:wrap}
+.cap{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--txt-2)}
+.cap .d{width:8px;height:8px;border-radius:50%}
+.res-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.res-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:16px;display:flex;flex-direction:column;gap:10px}
+.res-top{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--txt-2);font-weight:500}
+.res-top .d{width:8px;height:8px;border-radius:50%}
+.res-val{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.res-val.c-cpu{color:var(--cpu)}
+.res-val.c-ram{color:var(--ram)}
+.res-val.c-disk{color:var(--disk)}
+.res-val.c-traffic{color:var(--traffic)}
+.spark{width:100%;height:40px}
+.spark svg{width:100%;height:40px;display:block}
+
+/* ============ Footer ============ */
+.footer{border-top:1px solid var(--border);padding:24px 0;text-align:center;font-size:12px;color:var(--txt-3)}
+.footer a{color:var(--txt-2)}
+.footer a:hover{color:var(--txt)}
+
+/* ============ Toast ============ */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--border);color:var(--txt);padding:10px 18px;border-radius:var(--r-pill);font-size:13px;box-shadow:var(--shadow-lg);z-index:200;opacity:0;transition:opacity .25s,bottom .25s;pointer-events:none}
+.toast.show{opacity:1;bottom:32px}
+
+/* ============ Settings Drawer ============ */
+.drawer-mask{position:fixed;inset:0;z-index:90;background:var(--mask-bg);opacity:0;transition:opacity .2s;pointer-events:none}
+.drawer-mask.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:340px;max-width:90vw;z-index:91;background:var(--panel);border-left:1px solid var(--border);box-shadow:var(--shadow-lg);transform:translateX(100%);transition:transform .25s;display:flex;flex-direction:column}
+.drawer.open{transform:none}
+.drawer-head{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--border)}
+.drawer-head h3{margin:0;font-size:16px;font-weight:600}
+.drawer-body{padding:20px;display:flex;flex-direction:column;gap:18px;overflow-y:auto}
+.set-row{display:flex;flex-direction:column;gap:6px}
+.set-row .lab{font-size:13px;font-weight:500}
+.set-row .desc{font-size:11px;color:var(--txt-3)}
+.seg{display:flex;background:var(--panel-2);border-radius:var(--r-md);padding:3px;gap:3px}
+.seg button{flex:1;padding:7px;border-radius:8px;font-size:12px;font-weight:500;color:var(--txt-2)}
+.seg button.active{background:var(--panel);color:var(--txt);box-shadow:var(--shadow-card)}
+
+/* ============ Responsive ============ */
+@media(max-width:1100px){.metrics{grid-template-columns:repeat(3,1fr)}.res-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:1023px){.detail{grid-template-columns:1fr}.sidebar{position:static;top:0}}
+@media(max-width:760px){
+  .container{padding:0 16px}
+  .metrics{grid-template-columns:repeat(2,1fr)}
+  .grid{grid-template-columns:1fr!important}
+  .qv-mgrid{grid-template-columns:1fr 1fr}
+  .qv-ping{grid-template-columns:1fr}
+  .search input{width:150px}
+}
+@media(max-width:480px){.metrics{grid-template-columns:1fr 1fr}.mgrid{gap:6px}}
+</style>
+</head>
+<body>
+<div id="app" class="app"></div>
+<div class="toast" id="toast"></div>
+<script>
+/* =====================================================================
+   Komari Aurora — Apple HIG inspired theme
+   Single-file SPA: overview / quick-view / detail
+   ===================================================================== */
+(function(){
+'use strict';
+
+/* ---------- State ---------- */
+const D = {
+  dataUpdateInterval: 3,
+  defaultHistoryHours: '24',
+  showOfflineNodes: true,
+  enablePing: true,
+  pingHours: '1',
+  cardsPerRow: '3',
+  footerName: ''
+};
+const S = {
+  nodes: [], nodesMap: {}, live: {}, onlineSet: {},
+  settings: {}, siteName: 'Komari Monitor',
+  pingTasks: [], pingCache: {}, pingBusy: {},
+  route: {name:'overview', uuid:null},
+  historyHours: 24, detail: null, detailLoading: false, detailReqId: 0,
+  filterGroup: localStorage.getItem('nodeSelectedGroup') || 'all',
+  search: '',
+  ws: null, wsTimer: null, wsBackoff: 1, wsAlive: false,
+  lang: localStorage.getItem('i18nextLng') || (navigator.language||'zh-CN').toLowerCase(),
+  appearance: localStorage.getItem('appearance') || 'dark'
+};
+
+/* ---------- i18n ---------- */
+const T = {
+  'zh-CN': {
+    servers:'服务器', all:'全部', search:'搜索节点…', online:'在线', offline:'离线',
+    cpu:'CPU', ram:'内存', disk:'磁盘', traffic:'流量', remaining:'月费', totalTraffic:'总流量',
+    upload:'上传', download:'下载', ping:'三网延迟', telecom:'电信', unicom:'联通', mobile:'移动',
+    back:'返回', hardware:'硬件信息', system:'系统信息', networkQuality:'网络质量', price:'价格',
+    monthly:'月付', renew:'续费', core:'核心', os:'系统', kernel:'内核', arch:'架构', uptime:'运行时间',
+    conn:'连接数', process:'进程', load:'负载', virt:'虚拟化', gpu:'GPU', remainingDays:'剩余',
+    perMonth:'/月', hour:'小时', noData:'暂无数据', loading:'加载中…', settings:'设置',
+    appearance:'外观', light:'浅色', dark:'深色', sys:'跟随系统', language:'语言',
+    cost:'月费', offlineNode:'离线节点', noNodes:'暂无服务器节点', poweredBy:'Powered by',
+    netUp:'上行', netDown:'下行', trafficUsed:'流量用量', network:'网络', loss:'丢包', ms:'ms', days:'天',
+    quickView:'快速预览', avg:'平均', min:'最小', max:'最大', other:'其他'
+  },
+  'en': {
+    servers:'Servers', all:'All', search:'Search nodes…', online:'Online', offline:'Offline',
+    cpu:'CPU', ram:'Memory', disk:'Disk', traffic:'Traffic', remaining:'Cost', totalTraffic:'Total Traffic',
+    upload:'Upload', download:'Download', ping:'Latency', telecom:'Tel', unicom:'Uni', mobile:'Mob',
+    back:'Back', hardware:'Hardware', system:'System', networkQuality:'Network Quality', price:'Price',
+    monthly:'Monthly', renew:'Renew', core:'Cores', os:'OS', kernel:'Kernel', arch:'Arch', uptime:'Uptime',
+    conn:'Connections', process:'Process', load:'Load', virt:'Virtual', gpu:'GPU', remainingDays:'Left',
+    perMonth:'/mo', hour:'h', noData:'No data', loading:'Loading…', settings:'Settings',
+    appearance:'Appearance', light:'Light', dark:'Dark', sys:'System', language:'Language',
+    cost:'Cost', offlineNode:'Offline', noNodes:'No server nodes', poweredBy:'Powered by',
+    netUp:'Up', netDown:'Down', trafficUsed:'Traffic', network:'Network', loss:'Loss', ms:'ms', days:'d',
+    quickView:'Quick view', avg:'Avg', min:'Min', max:'Max', other:'Other'
+  }
+};
+function tk(k){ const l = S.lang && S.lang.indexOf('en')===0 ? 'en' : 'zh-CN'; return (T[l] && T[l][k]) || (T['zh-CN'][k]) || k; }
+
+/* ---------- Utils ---------- */
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const pad2 = n => String(n).padStart(2,'0');
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtBytes(b, dec){
+  if(b==null||isNaN(b)||b<0) return '---';
+  if(b===0) return '0 B';
+  const u=['B','KB','MB','GB','TB','PB']; const i=Math.min(Math.floor(Math.log(b)/Math.log(1024)),u.length-1);
+  return (b/Math.pow(1024,i)).toFixed(dec==null?1:dec)+' '+u[i];
+}
+function fmtRate(b, dec){
+  if(b==null||isNaN(b)||b<0) return '---';
+  const v=fmtBytes(b, dec); return v.replace(' B',' B/s').replace(/ ([A-Z])B$/,' $1B/s');
+}
+function fmtUptime(sec){
+  if(!sec||sec<0) return '---';
+  const d=Math.floor(sec/86400), h=Math.floor(sec%86400/3600), m=Math.floor(sec%3600/60);
+  if(d>0) return d+'d '+h+'h';
+  if(h>0) return h+'h '+m+'m';
+  return m+'m';
+}
+function fmtPct(v){ if(v==null||isNaN(v)) return '---'; return (+v).toFixed(1)+'%'; }
+function fmtMoney(p, cur){ cur=cur||'$'; if(p==null||isNaN(p)) return '---'; return cur+Number(p).toFixed(2); }
+function parseTime(t){
+  if(t==null) return new Date(0);
+  if(typeof t==='number') return new Date(t>1e12?t:t*1000);
+  let s=String(t);
+  let d=new Date(s);
+  if(isNaN(d)) d=new Date(s.replace(' ','T'));
+  return isNaN(d)?new Date(0):d;
+}
+const REGION_MAP = {'singapore':'SG','tokyo':'JP','japan':'JP','osaka':'JP','us':'US','usa':'US','united states':'US','los angeles':'US','new york':'US','seattle':'US','san jose':'US','hong kong':'HK','hk':'HK','london':'GB','uk':'GB','england':'GB','germany':'DE','frankfurt':'DE','france':'FR','paris':'FR','korea':'KR','seoul':'KR','russia':'RU','moscow':'RU','canada':'CA','toronto':'CA','vancouver':'CA','australia':'AU','sydney':'AU','netherlands':'NL','amsterdam':'NL','china':'CN','beijing':'CN','shanghai':'CN','guangzhou':'CN','shenzhen':'CN','taiwan':'TW','india':'IN','mumbai':'IN','brazil':'BR','turkey':'TR','sweden':'SE','finland':'FI','spain':'ES','italy':'IT','japan tokyo':'JP','singapore sg':'SG'};
+function regionToCode(r){
+  if(!r) return '';
+  let s=String(r).trim();
+  if(/^[a-zA-Z]{2}$/.test(s)) return s.toUpperCase();
+  // take first segment before / , (
+  s=s.split(/[\/,(]/)[0].trim().toLowerCase();
+  if(/^[a-zA-Z]{2}$/.test(s)) return s.toUpperCase();
+  if(REGION_MAP[s]) return REGION_MAP[s];
+  // try contains
+  for(const k in REGION_MAP){ if(s.indexOf(k)>=0) return REGION_MAP[k]; }
+  return '';
+}
+function flagHtml(region){
+  const code=(regionToCode(region)||'').toUpperCase();
+  return '<span style="position:relative;display:inline-block;width:18px;height:13px;flex:0 0 auto;vertical-align:middle">'+
+    '<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:var(--txt-2);letter-spacing:0">'+code+'</span>'+
+    '<img class="flag" src="/images/flags/'+code+'.svg" alt="" style="position:absolute;inset:0" onerror="this.style.display=\'none\'">'+
+    '</span>';
+}
+/* ISP classification: returns {key,name,cls} key: telecom|unicom|mobile|ispN */
+function classifyIsp(name){
+  const n=String(name||'').toLowerCase();
+  if(/电信|telecom|china telecom|ctcc|163/.test(n)) return 'telecom';
+  if(/联通|unicom|china unicom|cuocc|169/.test(n)) return 'unicom';
+  if(/移动|mobile|china mobile|cmcc|931/.test(n)) return 'mobile';
+  return 'mobile';
+}
+function ispKey(name, idx){
+  const n=String(name||'').toLowerCase();
+  if(/电信|telecom/.test(n)) return 'telecom';
+  if(/联通|unicom/.test(n)) return 'unicom';
+  if(/移动|mobile/.test(n)) return 'mobile';
+  return ['telecom','unicom','mobile'][idx%3];
+}
+function ispColorChart(key){ return key==='telecom'?'#007AFF':key==='unicom'?'#34C759':key==='mobile'?'#FF9500':'#AF52DE'; }
+function ispColorCard(key){ return key==='telecom'?'var(--telecom)':key==='unicom'?'var(--unicom)':key==='mobile'?'var(--mobile)':'var(--traffic)'; }
+function ispCls(key){ return key==='telecom'?'tel':key==='unicom'?'uni':key==='mobile'?'mob':'gen'; }
+function ispLabel(key){ return key==='telecom'?tk('telecom'):key==='unicom'?tk('unicom'):key==='mobile'?tk('mobile'):'ISP'; }
+
+/* ---------- API (3s timeout, graceful null on failure) ---------- */
+/* Komari standard responses are wrapped as {status,message,data};
+   unwrap .data automatically. /api/me uses WithRaw (no wrapper). */
+function fetchJSON(url){
+  const ctrl=new AbortController();
+  const to=setTimeout(()=>ctrl.abort(), 3000);
+  return fetch(url, {signal:ctrl.signal, headers:{'Accept':'application/json'}})
+    .then(r=>{ if(!r.ok) return null; return r.json(); })
+    .then(j=>{
+      if(j && typeof j==='object' && j.status==='success' && j.data!==undefined) return j.data;
+      if(j && typeof j==='object' && j.status==='error') return null;
+      return j;
+    })
+    .catch(()=>null)
+    .finally(()=>clearTimeout(to));
+}
+const api = {
+  public:   ()=>fetchJSON('/api/public'),
+  nodes:    ()=>fetchJSON('/api/nodes'),
+  version:  ()=>fetchJSON('/api/version'),
+  me:       ()=>fetchJSON('/api/me'),
+  pingTasks:()=>fetchJSON('/api/task/ping'),
+  loadRecs: (uuid,h)=>fetchJSON('/api/records/load?uuid='+encodeURIComponent(uuid)+'&hours='+h+'&load_type=all'),
+  pingRecs: (uuid,h)=>fetchJSON('/api/records/ping?uuid='+encodeURIComponent(uuid)+'&hours='+h)
+};
+
+/* ---------- WebSocket: live data, exponential backoff reconnect ---------- */
+function wsUrl(){ const p=location.protocol==='https:'?'wss:':'ws:'; return p+'//'+location.host+'/api/clients'; }
+function wsConnect(){
+  try{ if(S.ws) S.ws.close(); }catch(e){}
+  let ws;
+  try{ ws=new WebSocket(wsUrl()); }catch(e){ scheduleReconnect(); return; }
+  S.ws=ws;
+  ws.onopen=()=>{ S.wsAlive=true; S.wsBackoff=1; wsPoll(); S.wsTimer=setInterval(wsPoll, Math.max(1,D.dataUpdateInterval)*1000); };
+  ws.onmessage=ev=>{
+    let m; try{ m=JSON.parse(ev.data); }catch(e){ return; }
+    if(m && m.status==='success' && m.data){
+      const onl=m.data.online||[]; const dt=m.data.data||{};
+      S.onlineSet={}; for(const u of onl) S.onlineSet[u]=true;
+      S.live={};
+      for(const u in dt){ const rep=dt[u]; if(!rep) continue; S.live[u]=transformReport(rep); }
+      onLiveUpdate();
+    }
+  };
+  ws.onclose=()=>{ S.wsAlive=false; if(S.wsTimer){clearInterval(S.wsTimer);S.wsTimer=null;} scheduleReconnect(); };
+  ws.onerror=()=>{ try{ws.close();}catch(e){} };
+}
+function scheduleReconnect(){
+  const d=Math.min(20000, 1000*Math.pow(1.7,S.wsBackoff)); S.wsBackoff=Math.min(S.wsBackoff+1,8);
+  setTimeout(()=>{ if(!S.wsAlive) wsConnect(); }, d);
+}
+function wsPoll(){ if(S.ws && S.ws.readyState===1){ try{ S.ws.send('get'); }catch(e){} } }
+function transformReport(rep){
+  if(!rep) return null;
+  const cpu=rep.cpu||{}, ram=rep.ram||{}, swap=rep.swap||{}, disk=rep.disk||{}, net=rep.network||{}, load=rep.load||{}, conn=rep.connections||{};
+  return {
+    cpu: +cpu.usage||0,
+    ram: ram.used||0, ram_total: ram.total||0,
+    swap: swap.used||0, swap_total: swap.total||0,
+    disk: disk.used||0, disk_total: disk.total||0,
+    net_in: net.down||0, net_out: net.up||0,
+    net_total_down: net.totalDown||0, net_total_up: net.totalUp||0,
+    uptime: rep.uptime||0, process: rep.process||0,
+    connections: (conn.tcp||0)+(conn.udp||0),
+    load1: load.load1||0, load5: load.load5||0, load15: load.load15||0
+  };
+}
+
+/* ---------- Build merged node ---------- */
+function buildNode(client){
+  const uuid=client.uuid;
+  const live=S.live[uuid];
+  const online=S.onlineSet[uuid]===true;
+  const n=Object.assign({}, client);
+  n.online=online;
+  if(live){
+    n.cpu=live.cpu; n.ram=live.ram; n.ram_total=live.ram_total||client.mem_total;
+    n.swap=live.swap; n.swap_total=live.swap_total||client.swap_total;
+    n.disk=live.disk; n.disk_total=live.disk_total||client.disk_total;
+    n.net_in=live.net_in; n.net_out=live.net_out;
+    n.net_total_down=live.net_total_down; n.net_total_up=live.net_total_up;
+    n.uptime=live.uptime; n.process=live.process; n.connections=live.connections;
+    n.load1=live.load1;
+  } else {
+    n.cpu=n.ram=n.disk=n.net_in=n.net_out=null;
+  }
+  return n;
+}
+function ramPct(n){ if(n.ram_total>0) return n.ram/n.ram_total*100; return null; }
+function diskPct(n){ if(n.disk_total>0) return n.disk/n.disk_total*100; return null; }
+function trafficPct(n){ if(n.traffic_limit>0) return (n.net_total_down+n.net_total_up)/n.traffic_limit*100; return null; }
+
+/* ---------- Router ---------- */
+function parseRoute(){
+  const p=location.pathname||'/';
+  const m=p.match(/^\/node\/([^\/?#]+)/);
+  if(m){ return {name:'detail', uuid:decodeURIComponent(m[1])}; }
+  return {name:'overview'};
+}
+function navigate(path){ history.pushState({},'',path); S.route=parseRoute(); render(); window.scrollTo(0,0); }
+window.addEventListener('popstate', ()=>{ S.route=parseRoute(); render(); });
+
+/* ---------- Render dispatch ---------- */
+function render(){
+  const app=document.getElementById('app');
+  if(S.route.name==='detail'){
+    renderDetailShell(app, S.route.uuid);
+  } else {
+    renderOverviewShell(app);
+  }
+  renderFooter();
+}
+
+/* ---------- Shell (header + drawer) ---------- */
+function headerHTML(){
+  return '<header class="header"><div class="container header-inner">'+
+    '<a class="brand" href="/" data-nav="/">'+
+      '<svg class="logo" viewBox="0 0 28 28" fill="none"><path d="M4 4 L14 14 L4 24 Z" fill="#34C759"/><path d="M14 4 L24 14 L14 24 Z" fill="#30D158" opacity="0.8"/><path d="M9 9 L19 19" stroke="#34C759" stroke-width="2.4" stroke-linecap="round"/></svg>'+
+      '<span>Komari</span>'+
+    '</a>'+
+    '<div class="header-actions">'+
+      '<button class="icon-btn" id="langBtn" title="Language">'+ (S.lang.indexOf('en')===0?'中':'EN') +'</button>'+
+      '<button class="icon-btn" id="setBtn" title="'+tk('settings')+'" aria-label="'+tk('settings')+'">'+
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'+
+      '</button>'+
+    '</div></div></header>';
+}
+function renderShell(app, inner){
+  app.innerHTML = headerHTML() +
+    '<main class="main"><div class="container" id="view">'+inner+'</div></main>' +
+    drawerHTML();
+  bindShell();
+}
+function drawerHTML(){
+  const ap=S.appearance;
+  return '<div class="drawer-mask" id="dmask"></div>'+
+    '<aside class="drawer" id="drawer"><div class="drawer-head"><h3>'+tk('settings')+'</h3>'+
+    '<button class="icon-btn" id="dclose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>'+
+    '<div class="drawer-body">'+
+      '<div class="set-row"><span class="lab">'+tk('appearance')+'</span>'+
+        '<div class="seg" id="segAp">'+
+          '<button data-v="light" class="'+(ap==='light'?'active':'')+'">'+tk('light')+'</button>'+
+          '<button data-v="dark" class="'+(ap==='dark'?'active':'')+'">'+tk('dark')+'</button>'+
+          '<button data-v="system" class="'+(ap==='system'?'active':'')+'">'+tk('sys')+'</button>'+
+        '</div></div>'+
+      '<div class="set-row"><span class="lab">'+tk('language')+'</span>'+
+        '<div class="seg" id="segLang">'+
+          '<button data-v="zh-CN" class="'+(S.lang.indexOf('en')!==0?'active':'')+'">中文</button>'+
+          '<button data-v="en" class="'+(S.lang.indexOf('en')===0?'active':'')+'">English</button>'+
+        '</div></div>'+
+    '</div></aside>';
+}
+function bindShell(){
+  const brand=document.querySelector('.brand[data-nav="/"]');
+  if(brand) brand.onclick=(e)=>{ e.preventDefault(); navigate('/'); };
+  const setBtn=document.getElementById('setBtn');
+  if(setBtn) setBtn.onclick=()=>{ document.getElementById('drawer').classList.add('open'); document.getElementById('dmask').classList.add('open'); };
+  const dc=document.getElementById('dclose'); const dm=document.getElementById('dmask');
+  if(dc) dc.onclick=closeDrawer; if(dm) dm.onclick=closeDrawer;
+  function closeDrawer(){ document.getElementById('drawer').classList.remove('open'); document.getElementById('dmask').classList.remove('open'); }
+  const segAp=document.getElementById('segAp');
+  if(segAp) segAp.querySelectorAll('button').forEach(b=>b.onclick=()=>{ S.appearance=b.dataset.v; localStorage.setItem('appearance',S.appearance); applyTheme(); syncSeg(segAp); });
+  const segLang=document.getElementById('segLang');
+  if(segLang) segLang.querySelectorAll('button').forEach(b=>b.onclick=()=>{ S.lang=b.dataset.v; localStorage.setItem('i18nextLng',S.lang); syncSeg(segLang); document.getElementById('langBtn').textContent = S.lang.indexOf('en')===0?'中':'EN'; render(); });
+  const lb=document.getElementById('langBtn');
+  if(lb) lb.onclick=()=>{ S.lang = S.lang.indexOf('en')===0?'zh-CN':'en'; localStorage.setItem('i18nextLng',S.lang); render(); };
+  function syncSeg(seg){ seg.querySelectorAll('button').forEach(b=>{ const v=b.dataset.v; let act=false;
+    if(seg.id==='segAp') act=(S.appearance===v);
+    else act=( (S.lang.indexOf('en')===0?'en':'zh-CN')===v );
+    b.classList.toggle('active',act); }); }
+}
+function applyTheme(){
+  let th=S.appearance;
+  if(th==='system'){ th = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark':'light'; }
+  document.documentElement.setAttribute('data-theme', th);
+  if(window.matchMedia){
+    try{ window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change',onSysTheme); }catch(e){}
+    try{ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',onSysTheme); }catch(e){}
+  }
+}
+function onSysTheme(){ if(S.appearance==='system') applyTheme(); }
+
+/* ---------- Footer ---------- */
+function renderFooter(){
+  let f=document.getElementById('auroraFooter');
+  if(!f){ f=document.createElement('footer'); f.id='auroraFooter'; f.className='footer'; document.body.appendChild(f); }
+  const name=D.footerName || S.siteName || 'Komari Monitor';
+  f.innerHTML='<div class="container">'+tk('poweredBy')+' <a href="https://github.com/komari-monitor/komari" target="_blank" rel="noopener">'+esc(name)+'</a></div>';
+}
+
+/* ---------- Overview ---------- */
+function renderOverviewShell(app){
+  renderShell(app, '<div id="overview"><div class="metrics" id="metrics"></div><div id="filterArea"></div><div class="grid" id="grid"></div></div>');
+  renderMetrics();
+  renderFilters();
+  renderGrid();
+}
+function onlineNodes(){ return S.nodes.map(buildNode).filter(n=>n.online); }
+function renderMetrics(){
+  const el=document.getElementById('metrics'); if(!el) return;
+  const on=onlineNodes();
+  const avg=a=> a.length? a.reduce((x,y)=>x+(y||0),0)/a.length : 0;
+  const cpuAvg=avg(on.map(n=>n.cpu));
+  const diskAvg=avg(on.map(n=>diskPct(n)).filter(v=>v!=null));
+  const cost=on.reduce((x,n)=>x+(n.price||0),0);
+  const tDown=on.reduce((x,n)=>x+(n.net_total_down||0),0);
+  const tUp=on.reduce((x,n)=>x+(n.net_total_up||0),0);
+  const upRate=on.reduce((x,n)=>x+(n.net_out||0),0);
+  const downRate=on.reduce((x,n)=>x+(n.net_in||0),0);
+  const card=(label,val,cls,chev)=>'<div class="metric-card"><div class="metric-top"><span class="metric-label">'+label+'</span>'+(chev?'<svg class="metric-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>':'')+'</div><div class="metric-value '+(cls||'')+'">'+val+'</div></div>';
+  el.innerHTML=
+    card(tk('cpu'), fmtPct(cpuAvg),'tone-cpu',true)+
+    card(tk('disk'), fmtPct(diskAvg),'tone-disk',true)+
+    card(tk('cost'), fmtMoney(cost, on[0]&&on[0].currency),'',false)+
+    card(tk('totalTraffic'), fmtBytes(tDown+tUp,1),'tone-traffic',true)+
+    card(tk('upload'), fmtRate(upRate),'tone-up',true)+
+    card(tk('download'), fmtRate(downRate),'tone-down',true);
+}
+function renderFilters(){
+  const el=document.getElementById('filterArea'); if(!el) return;
+  // groups from nodes (client.group) + region fallback
+  const groups={};
+  S.nodes.forEach(n=>{ const g=n.group || n.region || tk('other'); groups[g]=(groups[g]||0)+1; });
+  const keys=['all'].concat(Object.keys(groups));
+  let chips=keys.map(k=>'<button class="chip '+(S.filterGroup===k?'active':'')+'" data-grp="'+esc(k)+'">'+esc(k==='all'?tk('all'):k)+'</button>').join('');
+  el.innerHTML='<div class="filter-row"><div class="filter-left"><div class="section-title">'+tk('servers')+'</div><div class="chips">'+chips+'</div></div>'+
+    '<div class="search"><svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'+
+    '<input id="searchInput" type="text" placeholder="'+tk('search')+'" value="'+esc(S.search)+'"></div></div>';
+  el.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{ S.filterGroup=c.dataset.grp; localStorage.setItem('nodeSelectedGroup',S.filterGroup); renderFilters(); renderGrid(); });
+  const si=document.getElementById('searchInput');
+  if(si){ si.oninput=()=>{ S.search=si.value; renderGrid(); }; }
+}
+function filteredNodes(){
+  let list=S.nodes.map(buildNode);
+  if(S.filterGroup && S.filterGroup!=='all'){
+    list=list.filter(n=> (n.group||n.region)===S.filterGroup);
+  }
+  if(S.search){
+    const q=S.search.toLowerCase();
+    list=list.filter(n=> (n.name||'').toLowerCase().indexOf(q)>=0 || (n.region||'').toLowerCase().indexOf(q)>=0);
+  }
+  if(!D.showOfflineNodes) list=list.filter(n=>n.online);
+  // online first, then by name
+  list.sort((a,b)=> (b.online-a.online) || String(a.name).localeCompare(String(b.name)));
+  return list;
+}
+function renderGrid(){
+  const g=document.getElementById('grid'); if(!g) return;
+  const cols=parseInt(D.cardsPerRow,10); g.style.gridTemplateColumns='repeat('+(cols>0?cols:3)+',1fr)';
+  const list=filteredNodes();
+  if(!S.nodes.length){
+    g.innerHTML='<div class="empty" style="grid-column:1/-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><div>'+tk('noNodes')+'</div></div>'; return;
+  }
+  if(!list.length){ g.innerHTML='<div class="empty" style="grid-column:1/-1">'+tk('noData')+'</div>'; return; }
+  g.innerHTML=list.map(cardHTML).join('');
+  // bind
+  g.querySelectorAll('.card').forEach(c=>{
+    c.onclick=()=>navigate('/node/'+c.dataset.uuid);
+    const qb=c.querySelector('[data-quick]');
+    if(qb) qb.onclick=(e)=>{ e.stopPropagation(); openQuickView(c.dataset.uuid); };
+  });
+  // initial live fill
+  updateLiveCards();
+  // lazy ping
+  if(D.enablePing) schedulePingFetch(list.map(n=>n.uuid));
+}
+function cardHTML(n){
+  const off=!n.online;
+  const hwTxt=[n.cpu_name, n.cpu_cores?n.cpu_cores+'C':'', n.mem_total?fmtBytes(n.mem_total,0):''].filter(Boolean).join(' · ');
+  return '<div class="card'+(off?' offline':'')+'" data-uuid="'+esc(n.uuid)+'">'+
+    '<div class="card-head"><div class="node-id">'+
+      '<span class="dot '+(off?'offline':'online')+'"></span>'+
+      '<span class="node-name">'+esc(n.name||n.uuid.slice(0,8))+'</span>'+
+      flagHtml(n.region)+
+    '</div><span class="badge '+(off?'offline':'online')+'">'+(off?tk('offline'):tk('online'))+'</span></div>'+
+    '<div class="hw">'+esc(hwTxt||'—')+'</div>'+
+    '<div class="mgrid">'+
+      mcell(tk('cpu'), 'c-cpu', 'g-cpu', n.cpu, off)+
+      mcell(tk('ram'), 'c-ram', 'g-ram', ramPct(n), off)+
+      mcell(tk('disk'), 'c-disk', 'g-disk', diskPct(n), off)+
+      mcell(tk('traffic'), 'c-traffic', 'g-traffic', trafficPct(n), off)+
+    '</div>'+
+    '<div class="ping-wrap"><div class="ping-title">'+tk('ping')+'</div><div class="ping-grid" data-ping>'+pingPlaceholder()+'</div></div>'+
+    '<div class="card-foot" data-foot>'+esc(tk('loading'))+'</div>'+
+    '<div class="card-quick"><button class="qbtn" data-quick aria-label="'+tk('quickView')+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button></div>'+
+  '</div>';
+}
+function mcell(label, valCls, barCls, pct, off){
+  const v = off ? '---' : fmtPct(pct);
+  const w = off ? 0 : clamp(pct||0,0,100);
+  return '<div class="mcell"><span class="lbl">'+label+'</span><span class="val '+valCls+(off?' muted':'')+'">'+v+'</span><div class="bar"><i class="'+barCls+'" style="width:'+w+'%"></i></div></div>';
+}
+function pingPlaceholder(){ return ['tel','uni','mob'].map(k=>'<div class="ping-col"><span class="pi">'+tk({tel:'telecom',uni:'unicom',mob:'mobile'}[k])+'</span><span class="pv c-'+k+' muted">---</span><div class="minibars">'+Array(7).fill('<b style="height:25%;background:var(--track)"></b>').join('')+'</div></div>').join(''); }
+
+/* live update in place */
+function onLiveUpdate(){
+  if(S.route.name==='detail'){ refreshDetailLive(); }
+  else { renderMetrics(); updateLiveCards(); }
+}
+function updateLiveCards(){
+  const g=document.getElementById('grid'); if(!g) return;
+  g.querySelectorAll('.card').forEach(c=>{
+    const n=buildNode(S.nodesMap[c.dataset.uuid]||{uuid:c.dataset.uuid});
+    if(!S.nodesMap[c.dataset.uuid]) return;
+    const off=!n.online;
+    c.classList.toggle('offline', off);
+    const dot=c.querySelector('.dot'); if(dot) dot.className='dot '+(off?'offline':'online');
+    const bg=c.querySelector('.badge'); if(bg){ bg.className='badge '+(off?'offline':'online'); bg.textContent=off?tk('offline'):tk('online'); }
+    setMcell(c, 0, 'c-cpu','g-cpu', n.cpu, off);
+    setMcell(c, 1, 'c-ram','g-ram', ramPct(n), off);
+    setMcell(c, 2, 'c-disk','g-disk', diskPct(n), off);
+    setMcell(c, 3, 'c-traffic','g-traffic', trafficPct(n), off);
+    const foot=c.querySelector('[data-foot]');
+    if(foot) foot.innerHTML = off? footOffline() : footOnline(n);
+  });
+}
+function setMcell(card, idx, valCls, barCls, pct, off){
+  const cell=card.querySelectorAll('.mcell')[idx]; if(!cell) return;
+  const v=cell.querySelector('.val'); const b=cell.querySelector('.bar i');
+  if(v){ v.textContent= off?'---':fmtPct(pct); v.className='val '+valCls+(off?' muted':''); }
+  if(b){ b.className=barCls; b.style.width=(off?0:clamp(pct||0,0,100))+'%'; }
+}
+function footOnline(n){
+  const rd=remainingDaysText(n);
+  return '<span class="up">↑'+fmtRate(n.net_out,0)+'</span><span class="sep">·</span>'+
+    '<span class="down">↓'+fmtRate(n.net_in,0)+'</span><span class="sep">·</span>'+
+    '<span>'+fmtUptime(n.uptime)+'</span><span class="sep">·</span>'+
+    '<span>'+fmtMoney(n.price,n.currency)+tk('perMonth')+'</span>'+
+    (rd?('<span class="sep">·</span><span>'+rd+'</span>'):'');
+}
+function footOffline(){ return '<span>'+tk('offlineNode')+'</span>'; }
+function remainingDays(n){
+  const ex=parseTime(n.expired_at); const now=new Date();
+  if(isNaN(ex)||ex<=now) return '';
+  const d=Math.ceil((ex-now)/86400000);
+  return '<span class="sep">·</span><span>'+d+tk('days')+'</span>';
+}
+function remainingDaysText(n){
+  const ex=parseTime(n.expired_at); const now=new Date();
+  if(isNaN(ex)||ex<=now) return '';
+  return Math.ceil((ex-now)/86400000)+tk('days');
+}
+
+/* ---------- Ping fetch (lazy, throttled, cached) ---------- */
+let pingQueue=[]; let pingRun=false;
+function schedulePingFetch(uuids){ pingQueue=uuids.slice(); runPingQueue(); }
+function runPingQueue(){
+  if(pingRun) return; pingRun=true;
+  function lane(){
+    if(pingQueue.length===0){ pingRun=false; return; }
+    const uuid=pingQueue.shift();
+    if(!uuid){ lane(); return; }
+    const now=Date.now(); const c=S.pingCache[uuid];
+    if(c && now-c.ts<45000){ updatePingCard(uuid); lane(); return; }
+    api.pingRecs(uuid, D.pingHours).then(res=>{
+      if(res) S.pingCache[uuid]={data:res,ts:Date.now()};
+      updatePingCard(uuid);
+      setTimeout(lane, 120);
+    }).catch(()=>{ setTimeout(lane, 120); });
+  }
+  lane();
+}
+function parsePingForNode(uuid){
+  const c=S.pingCache[uuid]; if(!c||!c.data) return null;
+  const tasks=c.data.tasks||[];
+  const recs=c.data.records||[];
+  // group records by task_id
+  const byTask={}; recs.forEach(r=>{ const k=r.task_id; (byTask[k]=byTask[k]||[]).push(r); });
+  const out=[];
+  tasks.forEach((t,idx)=>{
+    const key=ispKey(t.name, idx);
+    const arr=(byTask[t.id]||[]).slice().sort((a,b)=>parseTime(a.time)-parseTime(b.time));
+    const vals=arr.map(r=>r.value>=0?r.value:null);
+    const validVals=vals.filter(v=>v!=null);
+    const latest = t.latest!=null&&t.latest>=0 ? t.latest : (validVals.length?validVals[validVals.length-1]:null);
+    const loss = t.loss!=null?t.loss:0;
+    out.push({key, name:t.name, latest, loss, avg:t.avg, series:vals});
+  });
+  // ensure telecom/unicom/mobile order
+  const order={telecom:0,unicom:1,mobile:2};
+  out.sort((a,b)=>(order[a.key]??3)-(order[b.key]??3));
+  return out;
+}
+function minibarsHTML(series, fcls){
+  const n=7; const arr=[];
+  const tail = series.slice(-n);
+  for(let i=0;i<n;i++){
+    const v = tail[i];
+    if(v==null){ arr.push('<b class="'+fcls+'" style="height:20%;opacity:.18"></b>'); }
+    else { const h=clamp(15+v*0.7,18,100); arr.push('<b class="'+fcls+'" style="height:'+h+'%"></b>'); }
+  }
+  return arr.join('');
+}
+function updatePingCard(uuid){
+  if(S.route.name!=='overview') return;
+  const card=document.querySelector('.card[data-uuid="'+cssEsc(uuid)+'"]');
+  if(!card) return;
+  const pg=card.querySelector('[data-ping]'); if(!pg) return;
+  const data=parsePingForNode(uuid);
+  const cols=['telecom','unicom','mobile'];
+  pg.innerHTML=cols.map(k=>{
+    const item=data?data.find(d=>d.key===k):null;
+    const fcls='f-'+ispCls(k);
+    const has = item && item.latest!=null;
+    return '<div class="ping-col"><span class="pi">'+tk({telecom:'telecom',unicom:'unicom',mobile:'mobile'}[k])+'</span>'+
+      '<span class="pv c-'+ispCls(k)+(has?'':' muted')+'">'+(has?(item.latest+tk('ms')):'---')+'</span>'+
+      '<div class="minibars">'+(item?minibarsHTML(item.series,fcls):('<b class="'+fcls+'" style="height:20%;opacity:.15"></b>'.repeat(7)))+'</div></div>';
+  }).join('');
+}
+function cssEsc(s){ return String(s).replace(/["\\]/g,'\\$&'); }
+
+/* ---------- Quick View Modal (Page 2) ---------- */
+function openQuickView(uuid){
+  const n=buildNode(S.nodesMap[uuid]||{uuid:uuid}); if(!S.nodesMap[uuid]) return;
+  const off=!n.online;
+  let ov=document.getElementById('qvOverlay'); if(ov) ov.remove();
+  ov=document.createElement('div'); ov.id='qvOverlay'; ov.className='overlay';
+  ov.innerHTML='<div class="qv" role="dialog" aria-modal="true">'+
+    '<a class="back" data-close><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>'+tk('back')+' '+tk('servers')+'</a>'+
+    '<div class="qv-head"><div class="qv-id"><span class="dot '+(off?'offline':'online')+'"></span><span class="node-name">'+esc(n.name)+'</span>'+flagHtml(n.region)+'</div>'+
+      '<span class="badge outline '+(off?'offline':'online')+'">'+(off?tk('offline'):tk('online'))+'</span></div>'+
+    '<div class="qv-hw">'+esc([n.cpu_name, n.cpu_cores?n.cpu_cores+'C':'', n.mem_total?fmtBytes(n.mem_total,0):'', n.virtualization].filter(Boolean).join(' · '))+'</div>'+
+    qvMetric(tk('cpu'), 'c-cpu','g-cpu', n.cpu, '#007AFF', off)+
+    qvMetric(tk('ram'), 'c-ram','g-ram', ramPct(n), '#34C759', off)+
+    qvMetric(tk('disk'), 'c-disk','g-disk', diskPct(n), '#FF9500', off)+
+    qvMetric(tk('traffic'), 'c-traffic','g-traffic', trafficPct(n), '#AF52DE', off)+
+    '<div class="qv-sec-title">'+tk('ping')+' <span class="tag-new">NEW</span></div>'+
+    '<div class="qv-ping" id="qvPing">'+pingPlaceholderBig()+'</div>'+
+    '<div class="qv-foot">'+(off?tk('offlineNode'):qvFoot(n))+'</div>'+
+  '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',(e)=>{ if(e.target===ov||e.target.closest('[data-close]')) ov.remove(); });
+  // ping
+  const data=parsePingForNode(uuid);
+  renderQvPing(uuid, data, off);
+  if(D.enablePing && !data){ api.pingRecs(uuid, D.pingHours).then(res=>{ if(res){S.pingCache[uuid]={data:res,ts:Date.now()}; renderQvPing(uuid, parsePingForNode(uuid), off);} }); }
+}
+function qvMetric(label, valCls, barCls, pct, hex, off){
+  const v=off?'---':fmtPct(pct); const w=off?0:clamp(pct||0,0,100);
+  return '<div class="qv-mcell"><span class="big '+valCls+(off?' muted':'')+'">'+v+'</span>'+
+    '<span class="hex">('+hex.replace('#','')+')&nbsp;</span>'+
+    '<div class="bar lg"><i class="'+barCls+'" style="width:'+w+'%"></i></div></div>';
+}
+function pingPlaceholderBig(){
+  return ['telecom','unicom','mobile'].map(k=>'<div class="qv-pcell"><span class="pn">'+tk({telecom:'telecom',unicom:'unicom',mobile:'mobile'}[k])+'</span><span class="pl c-'+ispCls(k)+' muted">---</span><span class="ploss">&nbsp;</span><div class="minibars">'+Array(8).fill('<b style="height:25%;background:var(--track)"></b>').join('')+'</div></div>').join('');
+}
+function renderQvPing(uuid, data, off){
+  const el=document.getElementById('qvPing'); if(!el) return;
+  const cols=['telecom','unicom','mobile'];
+  el.innerHTML=cols.map(k=>{
+    const item=data?data.find(d=>d.key===k):null; const fcls='f-'+ispCls(k);
+    const has=item&&item.latest!=null;
+    const bars = item? (item.series.slice(-8).map(v=> v==null? '<b class="'+fcls+'" style="height:20%;opacity:.2"></b>':'<b class="'+fcls+'" style="height:'+clamp(20+v*0.7,20,100)+'%"></b>').join('')) : Array(8).fill('<b class="'+fcls+'" style="height:20%;opacity:.15"></b>').join('');
+    return '<div class="qv-pcell"><span class="pn">'+tk({telecom:'telecom',unicom:'unicom',mobile:'mobile'}[k])+'</span>'+
+      '<span class="pl c-'+ispCls(k)+(has?'':' muted')+'">'+(has?(item.latest+tk('ms')):'---')+'</span>'+
+      '<span class="ploss">'+(has?(item.loss!=null?item.loss.toFixed(1):'0')+'% '+tk('loss'):'')+'</span>'+
+      '<div class="minibars">'+bars+'</div></div>';
+  }).join('');
+}
+function qvFoot(n){
+  const rd=remainingDaysText(n);
+  return '<span class="up">↑ '+fmtRate(n.net_out,1)+'</span><span class="sep">·</span>'+
+    '<span class="down">↓ '+fmtRate(n.net_in,1)+'</span><span class="sep">·</span>'+
+    '<span>'+fmtUptime(n.uptime)+'</span><span class="sep">·</span>'+
+    '<span>'+fmtMoney(n.price,n.currency)+tk('perMonth')+'</span>'+
+    (rd?(' <span class="sep">·</span> <span>'+rd+'</span>'):'');
+}
+
+/* ---------- Detail Page (Page 3) ---------- */
+function renderDetailShell(app, uuid){
+  const client=S.nodesMap[uuid];
+  if(!client){ renderShell(app,'<div class="empty">'+tk('noData')+'</div>'); return; }
+  S.historyHours = parseInt(D.defaultHistoryHours,10)||24;
+  if([1,6,12,24].indexOf(S.historyHours)===-1) S.historyHours=24;
+  const n=buildNode(client); const off=!n.online;
+  renderShell(app,
+    '<a class="back" data-nav="/" style="margin-bottom:16px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>'+tk('back')+' '+tk('servers')+'</a>'+
+    '<div class="detail" id="detail">'+
+      '<aside class="sidebar" id="sidebar">'+sidebarHTML(n,off)+'</aside>'+
+      '<div class="detail-main" id="dmain">'+
+        '<div class="dm-title"><h2>'+tk('networkQuality')+'</h2><span>Network Quality</span></div>'+
+        '<div class="time-sel" id="timeSel"></div>'+
+        '<div class="chart-box" id="chartBox"><div class="empty" style="padding:48px">'+tk('loading')+'</div></div>'+
+        '<div class="capsules" id="capsules"></div>'+
+        '<div class="res-grid" id="resGrid"></div>'+
+        '<div class="res-grid" id="sparkGrid"></div>'+
+      '</div>'+
+    '</div>'
+  );
+  app.querySelectorAll('[data-nav="/"]').forEach(b=>b.onclick=(e)=>{ e.preventDefault(); navigate('/'); });
+  // time selector
+  const ts=document.getElementById('timeSel');
+  const opts=[1,6,12,24];
+  ts.innerHTML=opts.map(h=>'<button class="tbtn '+(h===S.historyHours?'active':'')+'" data-h="'+h+'">'+h+tk('hour')+'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button>').join('');
+  ts.querySelectorAll('.tbtn').forEach(b=>b.onclick=()=>{ S.historyHours=+b.dataset.h; ts.querySelectorAll('.tbtn').forEach(x=>x.classList.toggle('active', x===b)); loadDetailData(uuid); });
+  loadDetailData(uuid);
+}
+function sidebarHTML(n,off){
+  const price=fmtMoney(n.price,n.currency);
+  const remaining = n.expired_at? (function(){const ex=parseTime(n.expired_at);const d=Math.ceil((ex-new Date())/86400000); return d>0?d+tk('days'):'—';})() : '—';
+  const priceCard=(cls)=>'<div class="price-card '+cls+'"><span class="pl">'+tk('price')+'</span><span class="pv">'+price+'<small>'+tk('perMonth')+'</small></span><span class="pl">'+tk('monthly')+'</span><span class="pv">'+price+'</span><span class="pl">'+tk('remainingDays')+'</span><span class="pv">'+remaining+'</span></div>';
+  const rows=[
+    [tk('cpu'), n.cpu_name||'—'],
+    [tk('core'), n.cpu_cores?n.cpu_cores+'':'—'],
+    [tk('os'), n.os||'—'],
+    [tk('kernel'), n.kernel_version||'—'],
+    [tk('arch'), n.arch||'—'],
+    [tk('uptime'), off?'—':fmtUptime(n.uptime)]
+  ];
+  const sys=[
+    [tk('conn'), off?'—':(n.connections||0)],
+    [tk('process'), off?'—':(n.process||0)],
+    [tk('load'), off?'—':(n.load1!=null? (+n.load1).toFixed(2):'—')],
+    [tk('virt'), n.virtualization||'—'],
+    [tk('gpu'), n.gpu_name||'—']
+  ];
+  return '<div class="sb-head"><a class="back" data-nav="/" style="margin:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>'+tk('back')+'</a>'+
+    '<div class="sb-id">'+flagHtml(n.region)+'<span class="node-name">'+esc(n.name)+'</span><span class="badge '+(off?'offline':'online')+'">'+(off?tk('offline'):tk('online'))+'</span></div></div>'+
+    '<div class="price-row">'+priceCard('dark')+priceCard('green')+'</div>'+
+    '<div class="info-block"><h4>'+tk('hardware')+'</h4>'+rows.map(r=>'<div class="info-row"><span class="k">'+r[0]+'</span><span class="v">'+esc(r[1])+'</span></div>').join('')+'</div>'+
+    '<div class="info-block"><h4>'+tk('system')+'</h4>'+sys.map(r=>'<div class="info-row"><span class="k">'+r[0]+'</span><span class="v">'+esc(r[1])+'</span><span class="arr">›</span></div>').join('')+'</div>';
+}
+async function loadDetailData(uuid){
+  const chartBox=document.getElementById('chartBox'); const caps=document.getElementById('capsules');
+  const resGrid=document.getElementById('resGrid'); const sparkGrid=document.getElementById('sparkGrid');
+  if(chartBox) chartBox.innerHTML='<div class="empty" style="padding:48px">'+tk('loading')+'</div>';
+  const h=S.historyHours;
+  const reqId=++S.detailReqId;
+  const [pingRes, loadRes] = await Promise.all([api.pingRecs(uuid,h), api.loadRecs(uuid,h)]);
+  if(reqId!==S.detailReqId) return;
+  if(S.route.name!=='detail' || S.route.uuid!==uuid) return;
+  const cb=document.getElementById('chartBox'); const cp=document.getElementById('capsules');
+  const rg=document.getElementById('resGrid'); const sg=document.getElementById('sparkGrid');
+  // network chart from ping
+  const seriesMap=buildPingSeries(pingRes);
+  if(cb){ if(seriesMap.length){ cb.innerHTML=networkChartSVG(seriesMap, h); } else { cb.innerHTML='<div class="empty" style="padding:48px">'+tk('noData')+'</div>'; } }
+  if(cp){ cp.innerHTML = seriesMap.map(s=>'<span class="cap"><span class="d" style="background:'+s.color+'"></span>'+esc(s.label)+' ~'+(s.latest!=null?s.latest+tk('ms'):'—')+'</span>').join('') || '<span class="cap" style="color:var(--txt-3)">'+tk('noData')+'</span>'; }
+  // resource cards from load records
+  const recs=(loadRes&&loadRes.records)||[];
+  // sort by time first, then get last
+  recs.sort((a,b)=>parseTime(a.time)-parseTime(b.time));
+  const last=recs.length?recs[recs.length-1]:null;
+  S.detail={recs:recs, ping:seriesMap};
+  if(rg) renderResGrid(rg, last, recs);
+  if(sg) renderSparkGrid(sg, recs);
+}
+function buildPingSeries(pingRes){
+  if(!pingRes||!pingRes.records) return [];
+  const tasks=pingRes.tasks||[];
+  const byTask={}; pingRes.records.forEach(r=>{ (byTask[r.task_id]=byTask[r.task_id]||[]).push(r); });
+  const out=[];
+  tasks.forEach((t,idx)=>{
+    const key=ispKey(t.name, idx);
+    const arr=(byTask[t.id]||[]).slice().sort((a,b)=>parseTime(a.time)-parseTime(b.time));
+    const pts=arr.map(r=>({t:parseTime(r.time), v:r.value>=0?r.value:null}));
+    const validPts=pts.filter(p=>p.v!=null);
+    const latest = t.latest!=null&&t.latest>=0?t.latest: (validPts.length?validPts[validPts.length-1].v:null);
+    out.push({key, label:tk({telecom:'telecom',unicom:'unicom',mobile:'mobile'}[key])||t.name, name:t.name, color:ispColorChart(key), points:pts, latest});
+  });
+  const order={telecom:0,unicom:1,mobile:2}; out.sort((a,b)=>(order[a.key]??3)-(order[b.key]??3));
+  return out;
+}
+function renderResGrid(grid, last, recs){
+  if(!grid) return;
+  const n=buildNode(S.nodesMap[S.route.uuid]||{});
+  const off=!n.online;
+  const cpuV= last?(typeof last.cpu==='number'?last.cpu:null): (off?null:n.cpu);
+  const ramPctv= last&&last.ram_total>0? (last.ram||0)/last.ram_total*100 : ramPct(n);
+  const diskPctv= last&&last.disk_total>0? (last.disk||0)/last.disk_total*100 : diskPct(n);
+  const netV= last?((last.net_in||0)+(last.net_out||0)): (off?null:((n.net_in||0)+(n.net_out||0)));
+  const card=(label,dotColor,valCls,barCls,val,pct,sparkKey,isRate)=>{
+    const v = (val==null||isNaN(val))? '---' : (isRate?fmtRate(val,1):fmtPct(val));
+    return '<div class="res-card"><div class="res-top"><span class="d" style="background:'+dotColor+'"></span>'+label+'</div>'+
+      '<div class="res-val '+valCls+'">'+v+'</div>'+
+      '<div class="bar lg"><i class="'+barCls+'" style="width:'+clamp(pct||0,0,100)+'%"></i></div>'+
+      '<div class="spark">'+sparklineSVG(extractSeries(recs,sparkKey))+'</div></div>';
+  };
+  grid.innerHTML=
+    card(tk('cpu'),'#007AFF','c-cpu','g-cpu', cpuV, cpuV, 'cpu', false)+
+    card(tk('ram'),'#34C759','c-ram','g-ram', ramPctv, ramPctv, 'ram', false)+
+    card(tk('disk'),'#FF9500','c-disk','g-disk', diskPctv, diskPctv, 'disk', false)+
+    card(tk('network'),'#AF52DE','c-traffic','g-traffic', netV, 0, 'net', true);
+}
+function extractSeries(recs, key){
+  return recs.map(r=>{
+    if(key==='cpu') return typeof r.cpu==='number'?r.cpu:0;
+    if(key==='ram') return r.ram_total>0? (r.ram||0)/r.ram_total*100 : 0;
+    if(key==='disk') return r.disk_total>0? (r.disk||0)/r.disk_total*100 : 0;
+    if(key==='net') return (r.net_in||0)+(r.net_out||0);
+    return 0;
+  }).filter(v=>!isNaN(v));
+}
+function renderSparkGrid(grid, recs){
+  if(!grid) return;
+  const items=[
+    {l:tk('cpu'), k:'cpu', c:'#007AFF'},
+    {l:tk('disk'), k:'disk', c:'#FF9500'},
+    {l:tk('conn'), k:'connections', c:'#34C759'},
+    {l:tk('process'), k:'process', c:'#AF52DE'}
+  ];
+  grid.innerHTML=items.map(it=>{
+    const s = recs.map(r=>{
+      if(it.k==='disk') return r.disk_total>0?(r.disk||0)/r.disk_total*100:0;
+      const v=r[it.k];
+      return typeof v==='number'?v:0;
+    });
+    return '<div class="res-card" style="padding:12px"><div class="spark">'+sparklineSVG(s,it.c)+'</div><div class="res-top" style="margin-top:6px"><span class="d" style="background:'+it.c+'"></span>'+it.l+'</div></div>';
+  }).join('');
+}
+function refreshDetailLive(){
+  const client=S.nodesMap[S.route.uuid]; if(!client) return;
+  const n=buildNode(client); const off=!n.online;
+  const sb=document.getElementById('sidebar'); if(!sb) return;
+  const badge=sb.querySelector('.badge'); if(badge){ badge.className='badge '+(off?'offline':'online'); badge.textContent=off?tk('offline'):tk('online'); }
+  const blocks=sb.querySelectorAll('.info-block');
+  if(blocks.length>=2){
+    const hwRows=blocks[0].querySelectorAll('.info-row .v');
+    if(hwRows[5]) hwRows[5].textContent = off?'—':fmtUptime(n.uptime);
+    const sysRows=blocks[1].querySelectorAll('.info-row .v');
+    if(sysRows[0]) sysRows[0].textContent = off?'—':(n.connections||0);
+    if(sysRows[1]) sysRows[1].textContent = off?'—':(n.process||0);
+    if(sysRows[2]) sysRows[2].textContent = off?'—':(n.load1!=null?(+n.load1).toFixed(2):'—');
+  }
+  const resGrid=document.getElementById('resGrid');
+  if(resGrid && S.detail && S.detail.recs && S.detail.recs.length){
+    renderResGrid(resGrid, S.detail.recs[S.detail.recs.length-1], S.detail.recs);
+  }
+}
+
+/* ---------- SVG: network area chart ---------- */
+function networkChartSVG(series, hours){
+  const W=820,H=280, P={l:10,r:46,t:16,b:24};
+  const iw=W-P.l-P.r, ih=H-P.t-P.b;
+  let allVals=[]; series.forEach(s=>s.points.forEach(p=>{ if(p.v!=null) allVals.push(p.v); }));
+  if(!allVals.length) return '<div class="empty">'+tk('noData')+'</div>';
+  let mx=Math.max.apply(null,allVals); mx=Math.max(mx,10);
+  // round up to nice scale
+  const step = mx<=20?5: mx<=60?10: mx<=150?25: mx<=500?50:100;
+  const yMax = Math.ceil((mx+step)/step)*step;
+  const xMin = Math.min.apply(null, series.map(s=>s.points.length?s.points[0].t:Date.now()).concat(Date.now()));
+  const xMax = Math.max.apply(null, series.map(s=>s.points.length?s.points[s.points.length-1].t:Date.now()).concat(Date.now()));
+  const span = Math.max(1, xMax-xMin);
+  const X=t=> P.l + (t-xMin)/span * iw;
+  const Y=v=> P.t + (1 - v/yMax) * ih;
+  let g='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" role="img">';
+  // defs gradients
+  series.forEach((s,i)=>{
+    g+='<defs><linearGradient id="ag'+i+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="'+s.color+'" stop-opacity="0.18"/><stop offset="100%" stop-color="'+s.color+'" stop-opacity="0"/></linearGradient></defs>';
+  });
+  // grid lines + y labels
+  for(let v=0; v<=yMax; v+=step){
+    const y=Y(v); g+='<line x1="'+P.l+'" y1="'+y.toFixed(1)+'" x2="'+(W-P.r)+'" y2="'+y.toFixed(1)+'" style="stroke:var(--border-2)" stroke-dasharray="3 4"/>';
+    g+='<text x="'+(W-P.r+6)+'" y="'+(y+3).toFixed(1)+'" font-size="10" style="font-family:var(--mono);fill:var(--txt-3)">'+v+'</text>';
+  }
+  g+='<text x="'+P.l+'" y="'+(P.t-4)+'" font-size="10" style="font-family:var(--mono);fill:var(--txt-3)">'+tk('ms')+'</text>';
+  // x labels
+  const ticks=5;
+  for(let i=0;i<=ticks;i++){
+    const t=xMin + span*i/ticks; const x=X(t);
+    const d=new Date(t);
+    const lbl = (d.getMonth()+1)+'/'+d.getDate()+' '+pad2(d.getHours())+':'+pad2(d.getMinutes());
+    g+='<text x="'+x.toFixed(1)+'" y="'+(H-6)+'" font-size="9" style="fill:var(--txt-3)" text-anchor="middle">'+lbl+'</text>';
+  }
+  // series paths
+  series.forEach((s,i)=>{
+    const pts=s.points.filter(p=>p.v!=null).map(p=>({x:X(p.t),y:Y(p.v)}));
+    if(pts.length<2) return;
+    const path=smoothPath(pts);
+    const area=path+' L '+pts[pts.length-1].x.toFixed(1)+' '+(P.t+ih)+' L '+pts[0].x.toFixed(1)+' '+(P.t+ih)+' Z';
+    g+='<path d="'+area+'" fill="url(#ag'+i+')"/>';
+    g+='<path d="'+path+'" fill="none" stroke="'+s.color+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+  });
+  g+='</svg>';
+  return g;
+}
+function smoothPath(pts){
+  if(!pts.length) return '';
+  if(pts.length<3){ let d='M '+pts[0].x.toFixed(1)+' '+pts[0].y.toFixed(1); for(let i=1;i<pts.length;i++) d+=' L '+pts[i].x.toFixed(1)+' '+pts[i].y.toFixed(1); return d; }
+  let d='M '+pts[0].x.toFixed(1)+' '+pts[0].y.toFixed(1);
+  for(let i=0;i<pts.length-1;i++){
+    const p0=pts[i-1]||pts[i], p1=pts[i], p2=pts[i+1], p3=pts[i+2]||p2;
+    const c1x=p1.x+(p2.x-p0.x)/6, c1y=p1.y+(p2.y-p0.y)/6;
+    const c2x=p2.x-(p3.x-p1.x)/6, c2y=p2.y-(p3.y-p1.y)/6;
+    d+=' C '+c1x.toFixed(1)+' '+c1y.toFixed(1)+', '+c2x.toFixed(1)+' '+c2y.toFixed(1)+', '+p2.x.toFixed(1)+' '+p2.y.toFixed(1);
+  }
+  return d;
+}
+function sparklineSVG(values, color){
+  color=color||'#007AFF';
+  const W=140,H=40,P=2;
+  const vals=(values&&values.length)?values:[0];
+  let mn=Math.min.apply(null,vals), mx=Math.max.apply(null,vals);
+  if(mn===mx){ mn=mn-1; mx=mx+1; }
+  const X=(i)=> P + i/(Math.max(1,vals.length-1))*(W-2*P);
+  const Y=(v)=> P + (1-(v-mn)/(mx-mn))*(H-2*P);
+  const pts=vals.map((v,i)=>({x:X(i),y:Y(v)}));
+  const path=smoothPath(pts);
+  const area=path+' L '+pts[pts.length-1].x.toFixed(1)+' '+H+' L '+pts[0].x.toFixed(1)+' '+H+' Z';
+  const id='sg'+Math.random().toString(36).slice(2,8);
+  return '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none"><defs><linearGradient id="'+id+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="'+color+'" stop-opacity="0.25"/><stop offset="100%" stop-color="'+color+'" stop-opacity="0"/></linearGradient></defs><path d="'+area+'" fill="url(#'+id+')"/><path d="'+path+'" fill="none" stroke="'+color+'" stroke-width="1.5"/></svg>';
+}
+
+/* ---------- Init ---------- */
+function applyConfig(settings){
+  if(!settings) return;
+  const tc = settings.theme_config || settings.configuration || settings.themeConfig || settings;
+  const tryKeys=(keys)=>{ for(const k of keys){ if(tc[k]!=null && tc[k]!=='') return tc[k]; if(settings[k]!=null && settings[k]!=='') return settings[k]; } return null; };
+  D.dataUpdateInterval = parseInt(tryKeys(['dataUpdateInterval'])||D.dataUpdateInterval,10)||3;
+  D.defaultHistoryHours = String(tryKeys(['defaultHistoryHours'])||D.defaultHistoryHours);
+  D.showOfflineNodes = tryKeys(['showOfflineNodes']); D.showOfflineNodes = D.showOfflineNodes==null?true:(D.showOfflineNodes===true||D.showOfflineNodes==='true');
+  D.enablePing = tryKeys(['enablePing']); D.enablePing = D.enablePing==null?true:(D.enablePing===true||D.enablePing==='true');
+  D.pingHours = String(tryKeys(['pingHours'])||D.pingHours);
+  D.cardsPerRow = String(tryKeys(['cardsPerRow'])||D.cardsPerRow);
+  D.footerName = tryKeys(['footerName'])||'';
+  S.siteName = tryKeys(['site_name','siteName','title']) || 'Komari Monitor';
+}
+async function init(){
+  applyTheme();
+  // show shell immediately
+  const app=document.getElementById('app');
+  renderShell(app, '<div class="empty">'+tk('loading')+'</div>');
+  renderFooter();
+  // load public + nodes in parallel
+  const [pub, nodes] = await Promise.all([api.public(), api.nodes()]);
+  if(pub) S.settings=pub;
+  applyConfig(pub);
+  if(Array.isArray(nodes)){ S.nodes=nodes; S.nodesMap={}; nodes.forEach(n=>S.nodesMap[n.uuid]=n); }
+  // ping tasks (best effort)
+  api.pingTasks().then(t=>{ if(Array.isArray(t)) S.pingTasks=t; });
+  S.route=parseRoute();
+  render();
+  // connect WS for live data
+  wsConnect();
+}
+document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>
